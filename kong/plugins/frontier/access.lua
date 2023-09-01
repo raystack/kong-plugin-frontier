@@ -4,7 +4,7 @@ local http = require "resty.http"
 local json = require('cjson')
 local kong = kong
 local ngx = ngx
-local utils = require "kong.plugins.route-override.utils"
+local utils = require "kong.plugins.frontier.utils"
 local unauthorized_response = {
     message = "unauthorized"
 }
