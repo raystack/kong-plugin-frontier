@@ -37,7 +37,7 @@ local schema = {
             }, {
                 http_method = {
                     type = "string",
-                    default = "GET"
+                    default = "POST"
                 }
             }, {
                 authz_url = {
