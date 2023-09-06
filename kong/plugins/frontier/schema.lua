@@ -45,7 +45,7 @@ local schema = {
                 }
             }, {
                 override_authz_header = {
-                    type = "string",
+                    type = "boolean",
                     default = true
                 }
             }, {
