@@ -123,6 +123,10 @@ function _M.run(conf)
     local user_token = check_request_identity(conf, cookies, bearer)
     kong.service.request.set_header(conf.header_name, user_token)
 
+    if conf.override_authz_header then
+        kong.service.request.set_header("Authorization", "Bearer " .. user_token)
+    end
+
     -- verify user permission(path authz)
     if conf.authz_url then
         if conf.rule then

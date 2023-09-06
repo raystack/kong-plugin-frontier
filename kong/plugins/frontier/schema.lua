@@ -44,6 +44,11 @@ local schema = {
                     type = "string"
                 }
             }, {
+                override_authz_header = {
+                    type = "string",
+                    default = true
+                }
+            }, {
                 rule = {
                     type = "record",
                     fields = {{
