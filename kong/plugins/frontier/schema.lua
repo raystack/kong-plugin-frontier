@@ -1,6 +1,11 @@
 local typedefs = require "kong.db.schema.typedefs"
 local PLUGIN_NAME = "frontier"
 
+local BEARER_TOKEN_HEADERS = {
+    "sub",
+    "org_ids"
+}
+
 -- https://github.com/Kong/kong-plugin/blob/master/kong/plugins/myplugin/schema.lua
 local schema = {
     name = PLUGIN_NAME,
@@ -47,6 +52,24 @@ local schema = {
                 override_authz_header = {
                     type = "boolean",
                     default = true
+                }
+            }, {
+                add_token_claims_as_headers = {
+                    type = "boolean",
+                    default = true
+                }
+            }, {
+                frontier_header_prefix = {
+                    type = "string",
+                    default = "X-Frontier-"
+                }
+            }, {
+                appendable_claim_headers = {
+                    type = "array",
+                    default = BEARER_TOKEN_HEADERS,
+                    elements = {
+                        type = "string"
+                    }
                 }
             }, {
                 rule = {

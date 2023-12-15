@@ -2,6 +2,7 @@ local _M = {}
 
 local http = require "resty.http"
 local json = require('cjson')
+local jwt_decoder = require "kong.plugins.frontier.jwt_decoder"
 local kong = kong
 local ngx = ngx
 local utils = require "kong.plugins.frontier.utils"
@@ -114,6 +115,40 @@ local function check_request_permission(conf, cookies, bearer)
     end
 end
 
+
+local function add_claims_as_headers(conf, user_token)
+    local clear_header = kong.service.request.clear_header
+    local set_header = kong.service.request.set_header
+
+    req_headers = kong.request.get_headers()
+
+    -- Clear headers of the format matching conf.frontier_header_prefix. These should be set only by the plugin.
+    for _, header in req_headers do
+        trimmed_header = utils.ltrim(header)
+
+        -- Format: string.find(fullstring, searchstring, init, is_this_a_pattern)
+        -- The last parameter here is important, since without this, we can run into "escape" issues. Eg. without this, "-" needs to be matched with "%-".
+        st, en = string.find(string.lower(trimmed_header), string.lower(conf.frontier_header_prefix), 1, true)
+
+        if st == 1 then
+            clear_header(header)
+        end
+    end
+
+    claims, err = jwt_decoder.new(user_token)
+    if err then
+        return fail_auth()
+    end
+
+    for _, header_name in iter(conf.appendable_claim_headers) do
+        new_header = conf.frontier_header_prefix .. header_name
+        val = claims[header_name]
+
+        set_header(new_header, val)
+    end
+
+end
+
 -- run it for every request
 function _M.run(conf)
     local cookies = kong.request.get_header("cookie")
@@ -132,6 +167,10 @@ function _M.run(conf)
         if conf.rule then
             check_request_permission(conf, cookies, bearer)
         end
+    end
+
+    if conf.add_token_claims_as_headers then
+        add_claims_as_headers(conf, user_token)
     end
 end
 
