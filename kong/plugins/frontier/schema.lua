@@ -1,7 +1,7 @@
 local typedefs = require "kong.db.schema.typedefs"
 local PLUGIN_NAME = "frontier"
 
-local BEARER_TOKEN_HEADERS = {
+local DEFAULT_TOKEN_HEADERS = {
     "sub",
     "org_ids"
 }
@@ -66,7 +66,7 @@ local schema = {
             }, {
                 appendable_claim_headers = {
                     type = "array",
-                    default = BEARER_TOKEN_HEADERS,
+                    default = DEFAULT_TOKEN_HEADERS,
                     elements = {
                         type = "string"
                     }
