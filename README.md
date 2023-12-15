@@ -40,6 +40,21 @@ header_name = {
 http_method = {
     type = "string",
     default = "GET"
+},
+add_token_claims_as_headers = {
+    type = "boolean",
+    default = true
+}
+frontier_header_prefix = {
+    type = "string",
+    default = "X-Frontier-"
+},
+appendable_claim_headers = {
+    type = "array",
+    default = BEARER_TOKEN_HEADERS,
+    elements = {
+        type = "string"
+    }
 }
 ```
 - For local development linting
@@ -48,6 +63,27 @@ brew install wget
 brew install luarocks
 luarocks install luacheck
 ```
+
+- For running tests locally
+Unit tests are written in [Kong Pongo](https://github.com/Kong/kong-pongo)
+
+Installation:
+```
+git clone git@github.com:Kong/kong-pongo.git
+PATH=$PATH:~/.local/bin
+git clone https://github.com/Kong/kong-pongo.git
+mkdir -p ~/.local/bin
+ln -s $(realpath kong-pongo/pongo.sh) ~/.local/bin/pongo
+```
+
+Running tests:
+```
+pongo up
+cd <root_folder_of_plugin>
+pongo run ./
+```
+
+If you get a `pongo: command not found` error after installation, add the pongo binary to path with `PATH=$PATH:~/.local/bin`
 
 ### References
 - https://github.com/Kong/kong-plugin
