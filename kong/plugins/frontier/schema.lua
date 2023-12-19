@@ -54,22 +54,17 @@ local schema = {
                     default = true
                 }
             }, {
-                add_token_claims_as_headers = {
-                    type = "boolean",
-                    default = true
-                }
-            }, {
-                frontier_header_prefix = {
-                    type = "string",
-                    default = "X-Frontier-"
-                }
-            }, {
-                appendable_claim_headers = {
+                token_claims_to_append_as_headers = {
                     type = "array",
                     default = DEFAULT_TOKEN_HEADERS,
                     elements = {
                         type = "string"
                     }
+                }
+            }, {
+                frontier_header_prefix = {
+                    type = "string",
+                    default = "X-Frontier-"
                 }
             }, {
                 rule = {

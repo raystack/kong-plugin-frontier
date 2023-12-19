@@ -116,7 +116,7 @@ local function check_request_permission(conf, cookies, bearer)
 end
 
 
-local function add_claims_as_headers(conf, user_token)
+local function append_claims_as_headers(conf, user_token)
     local clear_header = kong.service.request.clear_header
     local set_header = kong.service.request.set_header
 
@@ -140,7 +140,7 @@ local function add_claims_as_headers(conf, user_token)
         return fail_auth()
     end
 
-    for _, header_name in iter(conf.appendable_claim_headers) do
+    for _, header_name in iter(conf.token_claims_to_append_as_headers) do
         new_header = conf.frontier_header_prefix .. header_name
         val = claims[header_name]
 
@@ -169,8 +169,8 @@ function _M.run(conf)
         end
     end
 
-    if conf.add_token_claims_as_headers then
-        add_claims_as_headers(conf, user_token)
+    if #conf.token_claims_to_append_as_headers > 0 then
+        append_claims_as_headers(conf, user_token)
     end
 end
 
