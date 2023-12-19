@@ -43,7 +43,7 @@ http_method = {
 },
 token_claims_to_append_as_headers = {
     type = "array",
-    default = BEARER_TOKEN_HEADERS,
+    default = DEFAULT_TOKEN_HEADERS,
     elements = {
         type = "string"
     }
