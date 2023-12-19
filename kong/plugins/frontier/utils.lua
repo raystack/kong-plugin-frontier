@@ -10,4 +10,9 @@ function _M.split(s, delimiter)
     return result
 end
 
+-- Trim spaces from the starting of a string
+function _M.ltrim(s)
+    return s:match'^%s*(.*)'
+  end
+
 return _M
