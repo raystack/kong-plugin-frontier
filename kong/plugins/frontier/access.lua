@@ -120,10 +120,10 @@ local function append_claims_as_headers(conf, user_token)
     local clear_header = kong.service.request.clear_header
     local set_header = kong.service.request.set_header
 
-    req_headers = kong.request.get_headers()
+    local req_headers = kong.request.get_headers()
 
     -- Clear headers of the format matching conf.frontier_header_prefix. These should be set only by the plugin.
-    for _, header in req_headers do
+    for _, header in pairs(req_headers) do
         trimmed_header = utils.ltrim(header)
 
         -- Format: string.find(fullstring, searchstring, init, is_this_a_pattern)
@@ -135,14 +135,16 @@ local function append_claims_as_headers(conf, user_token)
         end
     end
 
-    claims, err = jwt_decoder.new(user_token)
+    local jwt, err = jwt_decoder.decode_token(user_token)
     if err then
         return fail_auth()
     end
 
-    for _, header_name in iter(conf.token_claims_to_append_as_headers) do
-        new_header = conf.frontier_header_prefix .. header_name
-        val = claims[header_name]
+    local claims = jwt.claims
+
+    for _, header_name in pairs(conf.token_claims_to_append_as_headers) do
+        local new_header = conf.frontier_header_prefix .. header_name
+        local val = claims[header_name]
 
         set_header(new_header, val)
     end
