@@ -18,6 +18,8 @@ local method_to_permission_map = {
     ["DELETE"] = "delete"
 }
 
+local frontier_org_ids_claim_key = "org_ids"
+
 local function fail_auth()
     kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response)
 end
@@ -151,6 +153,23 @@ local function append_claims_as_headers(conf, user_token)
 
 end
 
+local function verify_organization_id_header(conf, user_token)
+    local request_organization_id = kong.request.get_header(conf.request_organization_id_header)
+    
+    if request_organization_id then
+        local jwt, err = jwt_decoder.decode_token(user_token)
+        if err then
+            return fail_auth()
+        end
+    
+        local claims = jwt.claims
+        local org_ids = claims[frontier_org_ids_claim_key]
+        if not utils.has_value(org_ids, request_organization_id) then
+            kong.service.request.clear_header(conf.request_organization_id_header)
+        end
+    end
+end
+
 -- run it for every request
 function _M.run(conf)
     local cookies = kong.request.get_header("cookie")
@@ -173,6 +192,10 @@ function _M.run(conf)
 
     if #conf.token_claims_to_append_as_headers > 0 then
         append_claims_as_headers(conf, user_token)
+    end
+
+    if conf.verify_request_organization_id_header then
+        verify_organization_id_header(conf, user_token)
     end
 end
 

@@ -67,6 +67,16 @@ local schema = {
                     default = "X-Frontier-"
                 }
             }, {
+                request_organization_id_header = {
+                    type = "string",
+                    default = "X-Organization-Id"
+                }
+            }, {
+                verify_request_organization_id_header = {
+                    type = "boolean",
+                    default = false
+                }
+            }, {
                 rule = {
                     type = "record",
                     fields = {{
