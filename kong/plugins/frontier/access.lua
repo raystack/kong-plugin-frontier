@@ -165,6 +165,7 @@ local function verify_organization_id_header(conf, user_token)
         local claims = jwt.claims
         local org_ids = claims[frontier_org_ids_claim_key]
         if not utils.has_value(org_ids, request_organization_id) then
+            kong.log.info(conf.request_organization_id_header .. " header removed for request")
             kong.service.request.clear_header(conf.request_organization_id_header)
         end
     end
