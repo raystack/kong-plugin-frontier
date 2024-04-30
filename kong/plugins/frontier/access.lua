@@ -126,11 +126,11 @@ local function append_claims_as_headers(conf, user_token)
 
     -- Clear headers of the format matching conf.frontier_header_prefix. These should be set only by the plugin.
     for _, header in pairs(req_headers) do
-        trimmed_header = utils.ltrim(header)
+        local trimmed_header = utils.ltrim(header)
 
         -- Format: string.find(fullstring, searchstring, init, is_this_a_pattern)
         -- The last parameter here is important, since without this, we can run into "escape" issues. Eg. without this, "-" needs to be matched with "%-".
-        st, en = string.find(string.lower(trimmed_header), string.lower(conf.frontier_header_prefix), 1, true)
+        local st, en = string.find(string.lower(trimmed_header), string.lower(conf.frontier_header_prefix), 1, true)
 
         if st == 1 then
             clear_header(header)
@@ -164,7 +164,15 @@ local function verify_organization_id_header(conf, user_token)
     
         local claims = jwt.claims
         local org_ids = claims[frontier_org_ids_claim_key]
-        if not utils.has_value(org_ids, request_organization_id) then
+
+        local org_id_header_verified = false
+        for word in string.gmatch(org_ids, '([^,]+)') do
+            if word == request_organization_id then
+                org_id_header_verified = true
+            end
+        end
+
+        if not org_id_header_verified then
             kong.log.info(conf.request_organization_id_header .. " header removed for request")
             kong.service.request.clear_header(conf.request_organization_id_header)
         end
