@@ -181,30 +181,34 @@ end
 
 -- run it for every request
 function _M.run(conf)
-    local cookies = kong.request.get_header("cookie")
-    local bearer = kong.request.get_header("authorization")
+    if conf.disabled then
+        kong.log.info("Skipping Frontier plugin execution as it is disabled")
+    else
+        local cookies = kong.request.get_header("cookie")
+        local bearer = kong.request.get_header("authorization")
 
-    -- verify user identity(authn)
-    local user_token = check_request_identity(conf, cookies, bearer)
-    kong.service.request.set_header(conf.header_name, user_token)
+        -- verify user identity(authn)
+        local user_token = check_request_identity(conf, cookies, bearer)
+        kong.service.request.set_header(conf.header_name, user_token)
 
-    if conf.override_authz_header then
-        kong.service.request.set_header("Authorization", "Bearer " .. user_token)
-    end
-
-    -- verify user permission(path authz)
-    if conf.authz_url then
-        if conf.rule then
-            check_request_permission(conf, cookies, bearer)
+        if conf.override_authz_header then
+            kong.service.request.set_header("Authorization", "Bearer " .. user_token)
         end
-    end
 
-    if #conf.token_claims_to_append_as_headers > 0 then
-        append_claims_as_headers(conf, user_token)
-    end
+        -- verify user permission(path authz)
+        if conf.authz_url then
+            if conf.rule then
+                check_request_permission(conf, cookies, bearer)
+            end
+        end
 
-    if conf.verify_request_organization_id_header then
-        verify_organization_id_header(conf, user_token)
+        if #conf.token_claims_to_append_as_headers > 0 then
+            append_claims_as_headers(conf, user_token)
+        end
+
+        if conf.verify_request_organization_id_header then
+            verify_organization_id_header(conf, user_token)
+        end
     end
 end
 
