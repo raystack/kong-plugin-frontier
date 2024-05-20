@@ -77,6 +77,11 @@ local schema = {
                     default = false
                 }
             }, {
+                disabled = {
+                    type = "boolean",
+                    default = false
+                }
+            }, {
                 rule = {
                     type = "record",
                     fields = {{

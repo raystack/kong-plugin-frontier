@@ -59,6 +59,10 @@ request_organization_id_header = {
 verify_request_organization_id_header = {
     type = "boolean",
     default = false
+},
+disabled = {
+    type = "boolean",
+    default = false
 }
 ```
 - For local development linting
