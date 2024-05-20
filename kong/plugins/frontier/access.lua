@@ -182,7 +182,7 @@ end
 -- run it for every request
 function _M.run(conf)
     if conf.disabled then
-        kong.log.info("Skipping Frontier plugin execution as it is disabled")
+        kong.log.debug("Skipping Frontier plugin execution as it is disabled")
     else
         local cookies = kong.request.get_header("cookie")
         local bearer = kong.request.get_header("authorization")
