@@ -1,6 +1,6 @@
 local plugin = {
     VERSION = "0.1.0",
-    PRIORITY = 1000
+    PRIORITY = 900
 }
 local access = require "kong.plugins.frontier.access"
 
