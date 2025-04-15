@@ -41,7 +41,7 @@ local function check_request_identity(conf, cookies, bearer)
         }
     })
     if not res or err then
-        kong.log.debug(err)
+        kong.log.warn("failed to check request identity: ", err)
         return fail_auth()
     end
     if not err and res and res.status ~= 200 then
@@ -97,7 +97,7 @@ local function check_request_permission(conf, cookies, bearer)
         body = json.encode(payload)
     })
     if not res or err then
-        kong.log.debug(err)
+        kong.log.warn("failed to check request permission: ", err)
         return fail_auth()
     end
     if not err and res and res.status ~= 200 then
@@ -108,7 +108,7 @@ local function check_request_permission(conf, cookies, bearer)
 
     local bodyJson, err = json.decode(res.body)
     if err or not bodyJson then
-        kong.log.debug(err)
+        kong.log.warn("failed to parse response body: ", err)
         return fail_auth()
     end
 
@@ -150,18 +150,17 @@ local function append_claims_as_headers(conf, user_token)
 
         set_header(new_header, val)
     end
-
 end
 
 local function verify_organization_id_header(conf, user_token)
     local request_organization_id = kong.request.get_header(conf.request_organization_id_header)
-    
+
     if request_organization_id then
         local jwt, err = jwt_decoder.decode_token(user_token)
         if err then
             return fail_auth()
         end
-    
+
         local claims = jwt.claims
         local org_ids = claims[frontier_org_ids_claim_key]
 
