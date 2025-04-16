@@ -45,6 +45,7 @@ local function check_request_identity(conf, cookies, bearer)
         return fail_auth()
     end
     if not err and res and res.status ~= 200 then
+        kong.log.warn("received non 200 response status: ", res.status)
         return kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response, {
             ["x-upstream-status"] = res.status
         })
@@ -77,6 +78,7 @@ local function check_request_permission(conf, cookies, bearer)
 
     local object_id = ngx.ctx.router_matches.uri_captures[conf.rule.id]
     if not object_id then
+        kong.log.warn("object_id: ", object_id)
         return fail_auth()
     end
 
@@ -101,6 +103,7 @@ local function check_request_permission(conf, cookies, bearer)
         return fail_auth()
     end
     if not err and res and res.status ~= 200 then
+        kong.log.warn("received non 200 response status: ", res.status)
         return kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response, {
             ["x-upstream-status"] = res.status
         })
@@ -113,6 +116,7 @@ local function check_request_permission(conf, cookies, bearer)
     end
 
     if bodyJson["status"] ~= true then
+        kong.log.warn("status value not true: ", bodyJson["status"])
         return fail_auth()
     end
 end
@@ -139,6 +143,7 @@ local function append_claims_as_headers(conf, user_token)
 
     local jwt, err = jwt_decoder.decode_token(user_token)
     if err then
+        kong.log.warn("failed to decode token: ", err)
         return fail_auth()
     end
 
@@ -158,6 +163,7 @@ local function verify_organization_id_header(conf, user_token)
     if request_organization_id then
         local jwt, err = jwt_decoder.decode_token(user_token)
         if err then
+            kong.log.warn("failed to decode token: ", err)
             return fail_auth()
         end
 
