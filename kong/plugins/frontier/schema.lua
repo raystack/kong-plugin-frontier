@@ -3,7 +3,8 @@ local PLUGIN_NAME = "frontier"
 
 local DEFAULT_TOKEN_HEADERS = {
     "sub",
-    "org_ids"
+    "org_ids",
+    "sub_type"
 }
 
 -- https://github.com/Kong/kong-plugin/blob/master/kong/plugins/myplugin/schema.lua
