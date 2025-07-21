@@ -37,7 +37,8 @@ local function check_request_identity(conf, cookies, bearer)
         method = conf.http_method,
         headers = {
             ["cookie"] = cookies,
-            ["authorization"] = bearer
+            ["authorization"] = bearer,
+            ["content-type"] = 'application/json'
         }
     })
     if not res or err then
