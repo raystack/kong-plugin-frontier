@@ -33,14 +33,20 @@ end
 -- send a request to auth server and fetch user token in exchange of cookies
 local function check_request_identity(conf, cookies, bearer)
     local client = get_http_client(conf)
-    local res, err = client:request_uri(conf.authn_url, {
+    local request_options = {
         method = conf.http_method,
         headers = {
             ["cookie"] = cookies,
             ["authorization"] = bearer,
             ["content-type"] = 'application/json'
         }
-    })
+    }
+    
+    if conf.http_method == "POST" then
+        request_options.body = "{}"
+    end
+    
+    local res, err = client:request_uri(conf.authn_url, request_options)
     if not res or err then
         kong.log.warn("failed to check request identity: ", err)
         return fail_auth()
