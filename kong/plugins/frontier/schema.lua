@@ -83,6 +83,11 @@ local schema = {
                     default = false
                 }
             }, {
+                token_response_field = {
+                    type = "string",
+                    default = "access_token"
+                }
+            }, {
                 rule = {
                     type = "record",
                     fields = {{
