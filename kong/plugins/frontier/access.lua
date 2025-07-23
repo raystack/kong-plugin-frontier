@@ -41,11 +41,13 @@ local function check_request_identity(conf, cookies, bearer)
             ["content-type"] = 'application/json'
         }
     }
-    
+
     if conf.http_method == "POST" then
         request_options.body = "{}"
+        kong.log.debug("check_request_identity: Added empty body for POST request")
     end
-    
+
+    kong.log.debug("check_request_identity: Making request to auth server")
     local res, err = client:request_uri(conf.authn_url, request_options)
     if not res or err then
         kong.log.warn("failed to check request identity: ", err)
@@ -58,17 +60,27 @@ local function check_request_identity(conf, cookies, bearer)
         })
     end
 
+    kong.log.debug("check_request_identity: Received successful response with status: ", res.status)
+
     -- set an upstream header if the credential exists and is valid
     local token = res.headers[conf.header_name]
-    
+    kong.log.debug("check_request_identity: Token from header '", conf.header_name, "': ",
+        token and "found" or "not found")
+
     -- fallback to response body if header token is not found
     if not token and res.body then
+        kong.log.debug("check_request_identity: Attempting to extract token from response body")
         local bodyJson, err = json.decode(res.body)
         if not err and bodyJson and bodyJson[conf.token_response_field] then
             token = bodyJson[conf.token_response_field]
+            kong.log.debug("check_request_identity: Token found in response body field '", conf.token_response_field, "'")
+        else
+            kong.log.debug("check_request_identity: Failed to extract token from response body - err: ", err,
+                ", field present: ", bodyJson and bodyJson[conf.token_response_field] and "yes" or "no")
         end
     end
-    
+
+    kong.log.debug("check_request_identity: Returning token: ", token and "found" or "not found")
     return token
 end
 
