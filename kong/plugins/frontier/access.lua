@@ -59,7 +59,17 @@ local function check_request_identity(conf, cookies, bearer)
     end
 
     -- set an upstream header if the credential exists and is valid
-    return res.headers[conf.header_name]
+    local token = res.headers[conf.header_name]
+    
+    -- fallback to response body if header token is not found
+    if not token and res.body then
+        local bodyJson, err = json.decode(res.body)
+        if not err and bodyJson and bodyJson[conf.token_response_field] then
+            token = bodyJson[conf.token_response_field]
+        end
+    end
+    
+    return token
 end
 
 local function get_permission(conf_methods)
