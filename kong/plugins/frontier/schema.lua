@@ -85,7 +85,7 @@ local schema = {
             }, {
                 token_response_field = {
                     type = "string",
-                    default = "access_token"
+                    default = "accessToken"
                 }
             }, {
                 rule = {
