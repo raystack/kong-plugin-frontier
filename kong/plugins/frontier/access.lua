@@ -182,7 +182,10 @@ local function append_claims_as_headers(conf, user_token)
         local new_header = conf.frontier_header_prefix .. header_name
         local val = claims[header_name]
 
-        set_header(new_header, val)
+        if val ~= nil then
+            set_header(new_header, val)
+        end
+
     end
 end
 
