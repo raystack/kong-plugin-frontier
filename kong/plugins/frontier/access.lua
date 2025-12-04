@@ -33,13 +33,21 @@ end
 -- send a request to auth server and fetch user token in exchange of cookies
 local function check_request_identity(conf, cookies, bearer)
     local client = get_http_client(conf)
+    local correlation_id = kong.request.get_header(conf.correlation_header_name)
+
+    local headers = {
+        ["cookie"] = cookies,
+        ["authorization"] = bearer,
+        ["content-type"] = 'application/json'
+    }
+
+    if correlation_id then
+        headers[conf.correlation_header_name] = correlation_id
+    end
+
     local request_options = {
         method = conf.http_method,
-        headers = {
-            ["cookie"] = cookies,
-            ["authorization"] = bearer,
-            ["content-type"] = 'application/json'
-        }
+        headers = headers
     }
 
     if conf.http_method == "POST" then

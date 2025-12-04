@@ -89,6 +89,11 @@ local schema = {
                     default = "accessToken"
                 }
             }, {
+                correlation_header_name = {
+                    type = "string",
+                    default = "X-Request-Id"
+                }
+            }, {
                 rule = {
                     type = "record",
                     fields = {{
