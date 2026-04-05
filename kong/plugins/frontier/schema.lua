@@ -5,7 +5,8 @@ local DEFAULT_TOKEN_HEADERS = {
     "sub",
     "org_ids",
     "sub_type",
-    "sid"
+    "sid",
+    "user_id"
 }
 
 -- https://github.com/Kong/kong-plugin/blob/master/kong/plugins/myplugin/schema.lua
