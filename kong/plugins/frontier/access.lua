@@ -187,6 +187,14 @@ local function append_claims_as_headers(conf, user_token)
 
     local claims = jwt.claims
 
+    -- A payload only has to be valid json, so it can decode to a string. In lua
+    -- that still indexes: `claims.sub` would hand back string.sub, and setting
+    -- a header to a function fails the request with a 500.
+    if type(claims) ~= "table" then
+        kong.log.warn("token payload is not an object, cannot read claims")
+        return fail_auth()
+    end
+
     for _, header_name in pairs(conf.token_claims_to_append_as_headers) do
         local new_header = conf.frontier_header_prefix .. header_name
         local val = claims[header_name]
@@ -209,12 +217,16 @@ local function verify_organization_id_header(conf, user_token)
         end
 
         local claims = jwt.claims
-        local org_ids = claims[frontier_org_ids_claim_key]
+        local org_ids = type(claims) == "table" and claims[frontier_org_ids_claim_key] or nil
 
+        -- a claim we cannot read is one we cannot verify against, so the header
+        -- gets dropped rather than raising in gmatch
         local org_id_header_verified = false
-        for word in string.gmatch(org_ids, '([^,]+)') do
-            if word == request_organization_id then
-                org_id_header_verified = true
+        if type(org_ids) == "string" then
+            for word in string.gmatch(org_ids, '([^,]+)') do
+                if word == request_organization_id then
+                    org_id_header_verified = true
+                end
             end
         end
 
