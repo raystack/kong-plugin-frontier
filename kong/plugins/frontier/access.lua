@@ -26,7 +26,8 @@ end
 
 local function get_http_client(conf)
     local client = http.new()
-    client:set_timeouts(conf.http_connect_timeout, conf.http_read_timeout, conf.http_send_timeout)
+    -- set_timeouts takes connect, send, read in that order
+    client:set_timeouts(conf.http_connect_timeout, conf.http_send_timeout, conf.http_read_timeout)
     return client
 end
 
