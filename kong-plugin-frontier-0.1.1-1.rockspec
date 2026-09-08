@@ -32,6 +32,8 @@ build = {
     ["kong.plugins."..plugin_name..".jwt_decoder"] = "kong/plugins/"..plugin_name.."/jwt_decoder.lua",
     ["kong.plugins."..plugin_name..".schema"] = "kong/plugins/"..plugin_name.."/schema.lua",
     ["kong.plugins."..plugin_name..".access"] = "kong/plugins/"..plugin_name.."/access.lua",
+    ["kong.plugins."..plugin_name..".cache"] = "kong/plugins/"..plugin_name.."/cache.lua",
+    ["kong.plugins."..plugin_name..".redis"] = "kong/plugins/"..plugin_name.."/redis.lua",
     ["kong.plugins."..plugin_name..".utils"] = "kong/plugins/"..plugin_name.."/utils.lua",
   }
 }

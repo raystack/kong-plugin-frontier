@@ -3,6 +3,7 @@ local _M = {}
 local http = require "resty.http"
 local json = require('cjson')
 local jwt_decoder = require "kong.plugins.frontier.jwt_decoder"
+local cache = require "kong.plugins.frontier.cache"
 local kong = kong
 local ngx = ngx
 local utils = require "kong.plugins.frontier.utils"
@@ -31,8 +32,10 @@ local function get_http_client(conf)
     return client
 end
 
--- send a request to auth server and fetch user token in exchange of cookies
-local function check_request_identity(conf, cookies, bearer)
+-- Sends a request to the auth server and gets a user token back for the
+-- cookies. Failures come back as `nil, err, upstream_status`, so the caller
+-- decides how to end the request instead of this doing it.
+local function fetch_identity_token(conf, cookies, bearer)
     local client = get_http_client(conf)
     local correlation_id = kong.request.get_header(conf.correlation_header_name)
 
@@ -60,13 +63,11 @@ local function check_request_identity(conf, cookies, bearer)
     local res, err = client:request_uri(conf.authn_url, request_options)
     if not res or err then
         kong.log.warn("failed to check request identity: ", err)
-        return fail_auth()
+        return nil, err or "no response from auth server"
     end
     if not err and res and res.status ~= 200 then
         kong.log.warn("received non 200 response status: ", res.status)
-        return kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response, {
-            ["x-upstream-status"] = res.status
-        })
+        return nil, "non 200 response status", res.status
     end
 
     kong.log.debug("check_request_identity: Received successful response with status: ", res.status)
@@ -90,6 +91,46 @@ local function check_request_identity(conf, cookies, bearer)
     end
 
     kong.log.debug("check_request_identity: Returning token: ", token and "found" or "not found")
+
+    if not token then
+        return nil, "no token in auth server response"
+    end
+
+    return token, nil, nil
+end
+
+-- verifies user identity, using the cache when it is turned on
+local function check_request_identity(conf, cookies, bearer)
+    -- set by the fetch below, read only when there is no token to return
+    local upstream_status
+
+    local function fetch()
+        local token, err, status = fetch_identity_token(conf, cookies, bearer)
+        upstream_status = status
+
+        return token, err
+    end
+
+    local token, err
+
+    if conf.cache_ttl > 0 then
+        token, err = cache.get(conf, cache.build_key(conf, cookies, bearer), fetch)
+    else
+        token, err = fetch()
+    end
+
+    if not token then
+        kong.log.warn("failed to resolve user token: ", err)
+
+        if upstream_status then
+            return kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response, {
+                ["x-upstream-status"] = upstream_status
+            })
+        end
+
+        return fail_auth()
+    end
+
     return token
 end
 
