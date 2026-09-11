@@ -27,14 +27,12 @@ end
 
 local function get_http_client(conf)
     local client = http.new()
-    -- set_timeouts takes connect, send, read in that order
-    client:set_timeouts(conf.http_connect_timeout, conf.http_send_timeout, conf.http_read_timeout)
+    local connect_timeout, send_timeout, read_timeout =
+        conf.http_connect_timeout, conf.http_send_timeout, conf.http_read_timeout
+    client:set_timeouts(connect_timeout, send_timeout, read_timeout)
     return client
 end
 
--- Sends a request to the auth server and gets a user token back for the
--- cookies. Failures come back as `nil, err, upstream_status`, so the caller
--- decides how to end the request instead of this doing it.
 local function fetch_identity_token(conf, cookies, bearer)
     local client = get_http_client(conf)
     local correlation_id = kong.request.get_header(conf.correlation_header_name)
@@ -99,14 +97,12 @@ local function fetch_identity_token(conf, cookies, bearer)
     return token, nil, nil
 end
 
--- verifies user identity, using the cache when it is turned on
 local function check_request_identity(conf, cookies, bearer)
-    -- set by the fetch below, read only when there is no token to return
-    local upstream_status
+    local auth_server_status
 
     local function fetch()
         local token, err, status = fetch_identity_token(conf, cookies, bearer)
-        upstream_status = status
+        auth_server_status = status
 
         return token, err
     end
@@ -122,9 +118,9 @@ local function check_request_identity(conf, cookies, bearer)
     if not token then
         kong.log.warn("failed to resolve user token: ", err)
 
-        if upstream_status then
+        if auth_server_status then
             return kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response, {
-                ["x-upstream-status"] = upstream_status
+                ["x-upstream-status"] = auth_server_status
             })
         end
 
@@ -228,10 +224,9 @@ local function append_claims_as_headers(conf, user_token)
 
     local claims = jwt.claims
 
-    -- A payload only has to be valid json, so it can decode to a string. In lua
-    -- that still indexes: `claims.sub` would hand back string.sub, and setting
-    -- a header to a function fails the request with a 500.
-    if type(claims) ~= "table" then
+    local claims_are_readable = type(claims) == "table"
+
+    if not claims_are_readable then
         kong.log.warn("token payload is not an object, cannot read claims")
         return fail_auth()
     end
@@ -260,9 +255,8 @@ local function verify_organization_id_header(conf, user_token)
         local claims = jwt.claims
         local org_ids = type(claims) == "table" and claims[frontier_org_ids_claim_key] or nil
 
-        -- a claim we cannot read is one we cannot verify against, so the header
-        -- gets dropped rather than raising in gmatch
         local org_id_header_verified = false
+
         if type(org_ids) == "string" then
             for word in string.gmatch(org_ids, '([^,]+)') do
                 if word == request_organization_id then
