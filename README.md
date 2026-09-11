@@ -95,9 +95,8 @@ plugins:
 
 | Field | Default | What it does |
 |---|---|---|
-| `cache_ttl` | `5` | Seconds a token is reused for. `0` turns caching off |
+| `cache_ttl` | `5` | Seconds a token is reused for. `0` turns caching off. Max `300` |
 | `cache_cookie_names` | `["sid"]` | Only these cookies go into the cache key |
-| `cache_exp_skew` | `2` | Clock skew allowed when clamping the ttl to the token expiry |
 | `redis_host` | unset | Setting it turns caching on |
 | `redis_port` | `6379` | |
 | `redis_timeout` | `100` | Milliseconds, for connect, send and read |
@@ -148,10 +147,9 @@ it.
 
 - The cache key is a sha256 of the cookies named in `cache_cookie_names`, the
   authorization header, and the config that decides what an entry means:
-  `authn_url`, `http_method`, `header_name`, `token_response_field`,
-  `cache_ttl` and `cache_exp_skew`. The session value is never stored in plain
-  text, and two routes that would resolve a credential differently cannot share
-  an entry.
+  `authn_url`, `http_method`, `header_name`, `token_response_field` and
+  `cache_ttl`. The session value is never stored in plain text, and two routes
+  that would resolve a credential differently cannot share an entry.
 - Only the named cookies go into the key. Browsers send analytics and consent
   cookies that change constantly, so keying on the whole cookie header would
   miss on nearly every request.
@@ -159,10 +157,12 @@ it.
   requests cannot share an entry.
 - A failed exchange is never cached. A user who has just been given access is
   not locked out for the length of the ttl.
-- The entry expiry is clamped to the token's own `exp`, minus `cache_exp_skew`.
-  That is the only thing that sets the expiry, so a token still in redis always
-  has at least the skew left on it and an expired token is never handed to the
-  upstream.
+- The entry lives for exactly `cache_ttl`. The token is never parsed, so
+  **`cache_ttl` has to stay well under your auth server's token lifetime**, or
+  the cache will hand out tokens that have already expired. Frontier mints a
+  fresh token on every call and its `token.validity` defaults to an hour, so
+  the default of 5 seconds leaves a very wide margin. The ceiling of 300 is
+  there so a careless value cannot get close.
 - Only the authn call is cached. The authz check in `authz_url` still runs on
   every request.
 - There is no lock, so several requests arriving together with the same new
