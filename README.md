@@ -109,8 +109,11 @@ plugins:
 | `redis_server_name` | unset | SNI, when using SSL |
 | `redis_key_prefix` | `frontier:authn:` | Prefix on every key |
 | `redis_breaker_seconds` | `10` | How long a worker stops trying after a failure |
-| `redis_keepalive_ms` | `60000` | How long a pooled connection is kept |
-| `redis_pool_size` | `30` | Connections kept per worker |
+
+Connections are reused through OpenResty's own connection pool, keyed by host,
+port, database, user and whether SSL is on. Two plugin configs that mean the
+same thing share a pool; two that differ do not. The pool is not configurable,
+the same way it is not in the bundled rate limiting plugin.
 
 The timeout default is 100ms, much lower than the bundled rate limiting
 plugin's 2000ms. A healthy redis answers in well under a millisecond, so 100ms
