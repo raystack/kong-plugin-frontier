@@ -16,7 +16,6 @@ describe("Plugin: " .. PLUGIN_NAME .. " (schema), ", function()
         }, schema_def))
 
         assert.equal(5, ok.config.cache_ttl)
-        assert.equal(2, ok.config.cache_exp_skew)
         assert.same({ "sid" }, ok.config.cache_cookie_names)
     end)
 

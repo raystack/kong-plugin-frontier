@@ -56,28 +56,12 @@ package.loaded["kong.plugins." .. PLUGIN_NAME .. ".redis"] = {
 
 local cache = require("kong.plugins."..PLUGIN_NAME..".cache")
 local utils = require("kong.plugins."..PLUGIN_NAME..".utils")
-local jwt_parser = require "kong.plugins.jwt.jwt_parser"
-local pkey = require "resty.openssl.pkey"
-
-local signing_key = assert(pkey.new({ type = "RSA", bits = 2048 }))
-
-local function token_expiring_in(seconds)
-    return assert(jwt_parser.encode({
-        sub = "u1",
-        exp = ngx.time() + seconds
-    }, signing_key:to_PEM("private"), "RS256"))
-end
-
-local function b64(input)
-    return (ngx.encode_base64(input, true):gsub("%+", "-"):gsub("/", "_"))
-end
 
 local function conf(overrides)
     local c = {
         authn_url = "http://frontier/v1beta1/auth/token",
         cache_ttl = 5,
         cache_cookie_names = { "sid" },
-        cache_exp_skew = 2,
         redis_host = "127.0.0.1",
         redis_port = 6379,
         redis_timeout = 100,
@@ -199,16 +183,10 @@ describe("Plugin: " .. PLUGIN_NAME .. " (cache), ", function()
             -- neighbouring route cached for much longer
             local a = cache.build_key(conf({ cache_ttl = 5 }), "sid=abc", nil)
             local b = cache.build_key(conf({ cache_ttl = 2.5 }), "sid=abc", nil)
-            local c = cache.build_key(conf({ cache_ttl = 3600 }), "sid=abc", nil)
+            local c = cache.build_key(conf({ cache_ttl = 300 }), "sid=abc", nil)
             assert.not_equal(a, b)
             assert.not_equal(a, c)
             assert.not_equal(b, c)
-        end)
-
-        it("a different cache_exp_skew is a different entry", function()
-            assert.not_equal(
-                cache.build_key(conf({ cache_exp_skew = 2 }), "sid=abc", nil),
-                cache.build_key(conf({ cache_exp_skew = 30 }), "sid=abc", nil))
         end)
 
         it("the order cookie names are listed in does not matter", function()
@@ -306,41 +284,27 @@ describe("Plugin: " .. PLUGIN_NAME .. " (cache), ", function()
             assert.equal(0, calls.get)
         end)
 
-        it("does not store a token with nothing left after the skew", function()
+        it("stores for exactly the configured ttl", function()
             reset()
             local c = conf()
-            -- exp is cache_exp_skew away, so the clamp leaves nothing
-            local token = token_expiring_in(c.cache_exp_skew)
-            assert.is_true(cache.ttl_for(c, token) <= 0)
-
-            local fetch, fetched = auth_server(token)
-            local key = cache.build_key(c, "sid=nearly-dead", nil)
-
-            assert.equal(token, cache.get(c, key, fetch))
-            assert.equal(token, cache.get(c, key, fetch))
-
-            assert.equal(2, fetched())
-            assert.equal(0, calls.set)
-        end)
-
-        it("does not store an already expired token", function()
-            reset()
-            local c = conf()
-            local fetch = auth_server(token_expiring_in(-60))
-
-            cache.get(c, cache.build_key(c, "sid=expired", nil), fetch)
-            assert.equal(0, calls.set)
-        end)
-
-        it("stores with the expiry clamped to the token", function()
-            reset()
-            local c = conf()
-            local fetch = auth_server(token_expiring_in(4))
-            local key = cache.build_key(c, "sid=short-lived", nil)
+            local fetch = auth_server("tok")
+            local key = cache.build_key(c, "sid=plain-ttl", nil)
 
             cache.get(c, key, fetch)
-            -- about 4 - 2 = 2, to the fraction
-            assert.is_true(store[key].ttl > 1 and store[key].ttl <= 2)
+            assert.equal(c.cache_ttl, store[key].ttl)
+        end)
+
+        it("stores an opaque token the same way", function()
+            -- the token is never parsed here, so one that is not a jwt at all
+            -- is stored and served like any other
+            reset()
+            local c = conf()
+            local fetch, fetched = auth_server("not-a-jwt")
+            local key = cache.build_key(c, "sid=opaque", nil)
+
+            assert.equal("not-a-jwt", cache.get(c, key, fetch))
+            assert.equal("not-a-jwt", cache.get(c, key, fetch))
+            assert.equal(1, fetched())
         end)
 
         it("a redis read that raises falls through to the auth server", function()
@@ -360,59 +324,6 @@ describe("Plugin: " .. PLUGIN_NAME .. " (cache), ", function()
             local fetch = auth_server("tok")
 
             assert.equal("tok", cache.get(c, cache.build_key(c, "sid=user-f", nil), fetch))
-        end)
-    end)
-
-    describe("ttl_for", function()
-        it("uses the configured ttl for an opaque token", function()
-            assert.equal(5, cache.ttl_for(conf(), "not-a-jwt"))
-        end)
-
-        it("keeps the configured ttl when the token outlives it", function()
-            assert.equal(5, cache.ttl_for(conf(), token_expiring_in(10)))
-        end)
-
-        it("clamps to the token expiry, minus the skew", function()
-            -- sub second, because the clamp works to the fraction so an entry
-            -- cannot outlive the token it holds
-            local ttl = cache.ttl_for(conf(), token_expiring_in(4))
-            assert.is_true(ttl > 1 and ttl <= 2)
-        end)
-
-        it("is not positive for a token that is already gone", function()
-            assert.is_true(cache.ttl_for(conf(), token_expiring_in(-60)) <= 0)
-        end)
-    end)
-
-    describe("hostile input", function()
-        -- anything with write access to the cache can put a value in it, so a
-        -- malformed entry must not raise. Under the old node cache a raise came
-        -- back as a cache error and turned into a 401 for a valid credential.
-        local function jwt_with(header, payload)
-            return b64(header) .. "." .. b64(payload) .. ".signature"
-        end
-
-        it("a payload that is not an object does not raise", function()
-            for _, payload in ipairs({ "1", "null", '"a string"', "[1,2]", "{}", "not json" }) do
-                local ok, ttl = pcall(cache.ttl_for, conf(), jwt_with('{"alg":"RS256"}', payload))
-                assert.is_true(ok)
-                assert.is_true(type(ttl) == "number")
-            end
-        end)
-
-        it("a header that is not an object does not raise", function()
-            -- jwt_parser reads header.alg without checking the header's type,
-            -- so these raise inside it
-            for _, header in ipairs({ "1", "null", "true", '"a string"', "[1]", "{}" }) do
-                local ok, ttl = pcall(cache.ttl_for, conf(), jwt_with(header, '{"sub":"u1"}'))
-                assert.is_true(ok)
-                assert.is_true(type(ttl) == "number")
-            end
-        end)
-
-        it("a token that cannot be read is still usable, just not trusted for its expiry", function()
-            assert.equal(5, cache.ttl_for(conf(), jwt_with("1", '{"exp":1}')))
-            assert.equal(5, cache.ttl_for(conf(), "not-a-jwt"))
         end)
     end)
 end)
