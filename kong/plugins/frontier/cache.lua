@@ -1,17 +1,13 @@
 local _M = {}
 
-local jwt_decoder = require "kong.plugins.frontier.jwt_decoder"
 local redis = require "kong.plugins.frontier.redis"
 local utils = require "kong.plugins.frontier.utils"
 
 local kong = kong
-local ngx = ngx
 local pcall = pcall
 local concat = table.concat
 local ipairs = ipairs
 local sort = table.sort
-local type = type
-local tonumber = tonumber
 local hash = utils.hash
 
 -- Builds the key for the credential being exchanged. Only the cookies named in
@@ -35,8 +31,7 @@ function _M.build_key(conf, cookies, bearer)
         conf.http_method or "",
         conf.header_name or "",
         conf.token_response_field or "",
-        tostring(conf.cache_ttl),
-        tostring(conf.cache_exp_skew)
+        tostring(conf.cache_ttl)
     }
 
     for _, name in ipairs(names) do
@@ -71,28 +66,6 @@ function _M.build_key(conf, cookies, bearer)
     return hash(concat(parts, "\0"))
 end
 
--- How long the entry may live, in seconds. Zero or less means do not store it.
--- Clamped to the token's own expiry minus cache_exp_skew, and nothing else sets
--- the expiry, so a token still in redis has at least the skew left on it.
-function _M.ttl_for(conf, token)
-    local ttl = conf.cache_ttl
-
-    local jwt = jwt_decoder.decode_token(token)
-    local claims = jwt and jwt.claims
-    local exp = type(claims) == "table" and tonumber(claims.exp) or nil
-
-    if exp then
-        -- ngx.now(), not ngx.time(): whole seconds round down, which would let
-        -- an entry outlive its token when cache_exp_skew is 0
-        local remaining = exp - ngx.now() - conf.cache_exp_skew
-        if remaining < ttl then
-            ttl = remaining
-        end
-    end
-
-    return ttl
-end
-
 -- Resolves the token: redis first, then the auth server through `fetch`. Redis
 -- is a cache and not an authority, so any problem with it falls through too.
 function _M.get(conf, key, fetch)
@@ -116,10 +89,10 @@ function _M.get(conf, key, fetch)
         return nil, err
     end
 
-    local ttl = _M.ttl_for(conf, token)
-
-    if ttl > 0 then
-        local set_ok, set_err = pcall(redis.set, conf, key, token, ttl)
+    -- cache_ttl as configured. The token is not read for its expiry, so
+    -- cache_ttl must stay well under the auth server's token lifetime.
+    if conf.cache_ttl > 0 then
+        local set_ok, set_err = pcall(redis.set, conf, key, token, conf.cache_ttl)
         if not set_ok then
             kong.log.warn("redis write raised, ignoring it: ", set_err)
         end

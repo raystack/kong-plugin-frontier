@@ -107,10 +107,15 @@ local schema = {
                 -- Set to 0 to turn caching off. Caching needs redis_host set;
                 -- without it there is nowhere to keep a token and every request
                 -- goes to the auth server.
+                --
+                -- The token is never read for its own expiry, so this has to
+                -- stay well under the auth server's token lifetime. Frontier
+                -- mints a fresh token per call and defaults to an hour, so the
+                -- 300 ceiling leaves a wide margin.
                 cache_ttl = {
                     type = "number",
                     default = 5,
-                    between = { 0, 3600 }
+                    between = { 0, 300 }
                 }
             }, {
                 -- only these cookies go into the cache key. Browsers send many
@@ -124,14 +129,7 @@ local schema = {
                         type = "string"
                     }
                 }
-            }, {
-                -- seconds of clock skew allowed when clamping the cache ttl to
-                -- the token expiry
-                cache_exp_skew = {
-                    type = "number",
-                    default = 2,
-                    between = { 0, 300 }
-                }
+
             }, {
                 -- setting a host turns caching on. Leave it unset and every
                 -- request goes to the auth server.
