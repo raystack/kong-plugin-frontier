@@ -195,18 +195,6 @@ local schema = {
                     between = { 0, 600 }
                 }
             }, {
-                redis_keepalive_ms = {
-                    type = "number",
-                    default = 60000,
-                    between = { 0, 3600000 }
-                }
-            }, {
-                redis_pool_size = {
-                    type = "number",
-                    default = 30,
-                    between = { 1, 1000 }
-                }
-            }, {
                 rule = {
                     type = "record",
                     fields = {{

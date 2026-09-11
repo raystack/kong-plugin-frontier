@@ -83,9 +83,7 @@ local function conf(overrides)
         redis_timeout = 100,
         redis_database = 0,
         redis_key_prefix = "frontier:authn:test:",
-        redis_breaker_seconds = 10,
-        redis_keepalive_ms = 60000,
-        redis_pool_size = 30
+        redis_breaker_seconds = 10
     }
     for k, val in pairs(overrides or {}) do
         c[k] = val
