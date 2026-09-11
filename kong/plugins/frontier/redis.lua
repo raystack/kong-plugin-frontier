@@ -1,13 +1,17 @@
 local _M = {}
 
 local resty_redis = require "resty.redis"
-local utils = require "kong.plugins.frontier.utils"
 
 local kong = kong
 local ngx = ngx
 local fmt = string.format
 local math_floor = math.floor
 local tonumber = tonumber
+
+-- how long an idle connection is kept, and how many per worker. The bundled
+-- rate limiting plugin hardcodes the same shape of numbers.
+local KEEPALIVE_MS = 60000
+local POOL_SIZE = 30
 
 -- Redis is a cache here, not an authority, so nothing in this file fails a
 -- request. Every problem returns nil and the caller falls through.
@@ -18,44 +22,16 @@ local tonumber = tonumber
 -- it, being a config mistake rather than a fault.
 local breaker_until = {}
 
--- memoised per conf table, so the password is hashed once and not per command
-local ids = setmetatable({}, { __mode = "k" })
-
--- Identifies one instance, and is also the pool name. A pooled connection skips
--- authentication, so anything that changes what a connection means belongs in
--- here. The password is hashed so it cannot reach a log.
+-- Names the pool openresty keeps the connection in, and identifies the instance
+-- for the breaker. A pooled connection has already authenticated and selected
+-- its database, so anything that changes what a connection means belongs here.
 local function instance_id(conf)
-    local id = ids[conf]
-
-    if not id then
-        local secret = ""
-        if conf.redis_password and conf.redis_password ~= "" then
-            secret = utils.hash(conf.redis_password)
-        end
-
-        id = fmt("frontier:%s:%d:%d:%s:%s:%s:%s:%s",
-            conf.redis_host,
-            conf.redis_port,
-            conf.redis_database,
-            conf.redis_username or "",
-            secret,
-            conf.redis_ssl and "s" or "p",
-            conf.redis_ssl_verify and "v" or "n",
-            conf.redis_server_name or "")
-
-        ids[conf] = id
-    end
-
-    return id
-end
-
-local function connection_options(conf)
-    return {
-        ssl = conf.redis_ssl,
-        ssl_verify = conf.redis_ssl_verify,
-        server_name = conf.redis_server_name,
-        pool = instance_id(conf)
-    }
+    return fmt("frontier:%s:%d:%d:%s:%s",
+        conf.redis_host,
+        conf.redis_port,
+        conf.redis_database,
+        conf.redis_username or "",
+        conf.redis_ssl and "s" or "p")
 end
 
 local function breaker_is_open(conf)
@@ -77,7 +53,12 @@ local function get_connection(conf)
     local red = resty_redis:new()
     red:set_timeouts(conf.redis_timeout, conf.redis_timeout, conf.redis_timeout)
 
-    local ok, err = red:connect(conf.redis_host, conf.redis_port, connection_options(conf))
+    local ok, err = red:connect(conf.redis_host, conf.redis_port, {
+        ssl = conf.redis_ssl,
+        ssl_verify = conf.redis_ssl_verify,
+        server_name = conf.redis_server_name,
+        pool = instance_id(conf)
+    })
     if not ok then
         trip_breaker(conf, "connect", err)
         return nil
@@ -123,8 +104,8 @@ local function get_connection(conf)
     return red
 end
 
-local function release(conf, red)
-    local ok, err = red:set_keepalive(conf.redis_keepalive_ms, conf.redis_pool_size)
+local function release(red)
+    local ok, err = red:set_keepalive(KEEPALIVE_MS, POOL_SIZE)
     if not ok then
         kong.log.debug("failed to return redis connection to the pool: ", err)
         red:close()
@@ -150,7 +131,7 @@ function _M.get(conf, key)
         return nil
     end
 
-    release(conf, red)
+    release(red)
 
     -- ngx.null is redis saying the key is not there
     if value == ngx.null or value == "" then
@@ -187,7 +168,7 @@ function _M.set(conf, key, value, ttl)
         return
     end
 
-    release(conf, red)
+    release(red)
 end
 
 return _M
