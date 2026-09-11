@@ -8,42 +8,42 @@ local pcall = pcall
 local concat = table.concat
 local ipairs = ipairs
 local sort = table.sort
+local tostring = tostring
 local hash = utils.hash
 
--- Builds the key for the credential being exchanged. Only the cookies named in
--- conf.cache_cookie_names go in; the rest change too often to key on. Returns
--- nil when there is no credential, so anonymous requests never share an entry.
-function _M.build_key(conf, cookies, bearer)
-    local jar = utils.parse_cookies(cookies)
-
-    -- sorted, so the order the names are listed in does not matter
+local function cookie_names_in_a_stable_order(conf)
     local names = {}
+
     for _, name in ipairs(conf.cache_cookie_names or {}) do
         names[#names + 1] = name
     end
+
     sort(names)
 
-    local has_credential = false
+    return names
+end
 
-    -- everything that changes what the entry means
-    local parts = {
+local function settings_that_change_what_an_entry_means(conf)
+    return {
         conf.authn_url or "",
         conf.http_method or "",
         conf.header_name or "",
         conf.token_response_field or "",
         tostring(conf.cache_ttl)
     }
+end
 
-    for _, name in ipairs(names) do
-        local values = jar[name]
+function _M.build_key(conf, cookies, bearer)
+    local jar = utils.parse_cookies(cookies)
+    local parts = settings_that_change_what_an_entry_means(conf)
+    local found_a_credential = false
 
-        -- Every occurrence goes in. Frontier acts on the last `sid` that
-        -- decodes, so taking one would let two users hash to the same key.
-        if values then
-            for _, value in ipairs(values) do
-                if value ~= "" then
-                    has_credential = true
-                end
+    for _, name in ipairs(cookie_names_in_a_stable_order(conf)) do
+        local every_value_sent_under_this_name = jar[name]
+
+        if every_value_sent_under_this_name then
+            for _, value in ipairs(every_value_sent_under_this_name) do
+                found_a_credential = found_a_credential or value ~= ""
                 parts[#parts + 1] = name .. "=" .. value
             end
         else
@@ -51,51 +51,57 @@ function _M.build_key(conf, cookies, bearer)
         end
     end
 
-    if bearer and bearer ~= "" then
-        has_credential = true
-        parts[#parts + 1] = bearer
-    else
-        parts[#parts + 1] = ""
-    end
+    found_a_credential = found_a_credential or (bearer ~= nil and bearer ~= "")
+    parts[#parts + 1] = bearer or ""
 
-    if not has_credential then
+    if not found_a_credential then
         return nil
     end
 
-    -- hashed, so no session sits in redis as a plaintext key
     return hash(concat(parts, "\0"))
 end
 
--- Resolves the token: redis first, then the auth server through `fetch`. Redis
--- is a cache and not an authority, so any problem with it falls through too.
-function _M.get(conf, key, fetch)
-    -- no credential to key on, or no redis to key it in
-    if not key or not redis.enabled(conf) then
-        return fetch()
+local function token_in_redis(conf, key)
+    local reached_redis, token = pcall(redis.get, conf, key)
+
+    if not reached_redis then
+        kong.log.warn("redis lookup raised, ignoring it: ", token)
+        return nil
     end
 
-    -- pcall'd so redis cannot fail a request even by raising
-    local ok, cached = pcall(redis.get, conf, key)
+    return token
+end
 
-    if not ok then
-        kong.log.warn("redis lookup raised, ignoring it: ", cached)
-    elseif cached then
+local function remember_token_in_redis(conf, key, token)
+    local reached_redis, err = pcall(redis.set, conf, key, token, conf.cache_ttl)
+
+    if not reached_redis then
+        kong.log.warn("redis write raised, ignoring it: ", err)
+    end
+end
+
+function _M.get(conf, key, fetch_from_auth_server)
+    local nothing_to_cache_or_nowhere_to_cache_it = key == nil or not redis.enabled(conf)
+
+    if nothing_to_cache_or_nowhere_to_cache_it then
+        return fetch_from_auth_server()
+    end
+
+    local cached = token_in_redis(conf, key)
+
+    if cached then
         kong.log.debug("token served from redis")
         return cached
     end
 
-    local token, err = fetch()
+    local token, err = fetch_from_auth_server()
+
     if not token then
         return nil, err
     end
 
-    -- cache_ttl as configured. The token is not read for its expiry, so
-    -- cache_ttl must stay well under the auth server's token lifetime.
     if conf.cache_ttl > 0 then
-        local set_ok, set_err = pcall(redis.set, conf, key, token, conf.cache_ttl)
-        if not set_ok then
-            kong.log.warn("redis write raised, ignoring it: ", set_err)
-        end
+        remember_token_in_redis(conf, key, token)
     end
 
     return token
