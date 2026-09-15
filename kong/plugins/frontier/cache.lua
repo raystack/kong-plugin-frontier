@@ -80,10 +80,12 @@ local function remember_token_in_redis(conf, key, token)
     end
 end
 
-function _M.get(conf, key, fetch_from_auth_server)
-    local nothing_to_cache_or_nowhere_to_cache_it = key == nil or not redis.enabled(conf)
+function _M.enabled(conf)
+    return conf.cache_ttl > 0 and redis.enabled(conf)
+end
 
-    if nothing_to_cache_or_nowhere_to_cache_it then
+function _M.get(conf, key, fetch_from_auth_server)
+    if key == nil or not _M.enabled(conf) then
         return fetch_from_auth_server()
     end
 
@@ -100,9 +102,7 @@ function _M.get(conf, key, fetch_from_auth_server)
         return nil, err
     end
 
-    if conf.cache_ttl > 0 then
-        remember_token_in_redis(conf, key, token)
-    end
+    remember_token_in_redis(conf, key, token)
 
     return token
 end
