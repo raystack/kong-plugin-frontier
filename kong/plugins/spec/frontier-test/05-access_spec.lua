@@ -37,21 +37,29 @@ local function base_conf()
     }
 end
 
--- runs the plugin against an auth server that hands back `token`, and reports
--- what reached the upstream.
-local function run_plugin(conf, token, request_headers)
-    local result = { set = {}, cleared = {}, status = nil }
+-- runs the plugin against an auth server and reports what reached the upstream.
+-- `answer` is either a token the server hands back in a 200, or a table
+-- describing the raw reply so the failure paths can be driven.
+local function run_plugin(conf, answer, request_headers)
+    local result = { set = {}, cleared = {}, status = nil, exit_headers = nil }
+
+    local reply, reply_err
+    if type(answer) == "table" then
+        reply, reply_err = answer.response, answer.err
+    else
+        reply = {
+            status = 200,
+            headers = {},
+            body = '{"' .. conf.token_response_field .. '":"' .. answer .. '"}'
+        }
+    end
 
     package.loaded["resty.http"] = {
         new = function()
             return {
                 set_timeouts = function() end,
                 request_uri = function()
-                    return {
-                        status = 200,
-                        headers = {},
-                        body = '{"' .. conf.token_response_field .. '":"' .. token .. '"}'
-                    }, nil
+                    return reply, reply_err
                 end
             }
         end
@@ -94,8 +102,9 @@ local function run_plugin(conf, token, request_headers)
             }
         },
         response = {
-            exit = function(status)
+            exit = function(status, _, headers)
                 result.status = status
+                result.exit_headers = headers
                 -- kong ends the request here, so nothing after it runs
                 error(exited)
             end
@@ -182,6 +191,67 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
 
             assert.is_nil(out.raised)
             assert.equal(401, out.status)
+        end)
+    end)
+
+    describe("what the auth server answers", function()
+        it("a 200 with no token in it gives a 401, not a 500", function()
+            -- the one behaviour change in this work. it used to pass nil into
+            -- set_header and fail with `invalid header value ... got nil`
+            local out = run_plugin(base_conf(), { response = { status = 200, headers = {}, body = "{}" } }, {})
+
+            assert.is_nil(out.raised)
+            assert.equal(401, out.status)
+            assert.is_nil(out.set["x-user-token"])
+        end)
+
+        it("a 200 with an empty body gives a 401", function()
+            local out = run_plugin(base_conf(), { response = { status = 200, headers = {}, body = "" } }, {})
+
+            assert.is_nil(out.raised)
+            assert.equal(401, out.status)
+        end)
+
+        it("a 200 whose body names a different field gives a 401", function()
+            local out = run_plugin(base_conf(),
+                { response = { status = 200, headers = {}, body = '{"some_other_field":"tok"}' } }, {})
+
+            assert.is_nil(out.raised)
+            assert.equal(401, out.status)
+        end)
+
+        it("a 401 is passed on as a 401 carrying the upstream status", function()
+            local out = run_plugin(base_conf(), { response = { status = 401, headers = {}, body = "" } }, {})
+
+            assert.is_nil(out.raised)
+            assert.equal(401, out.status)
+            assert.equal(401, out.exit_headers["x-upstream-status"])
+        end)
+
+        it("a 500 from the auth server becomes a 401 carrying the upstream status", function()
+            local out = run_plugin(base_conf(), { response = { status = 500, headers = {}, body = "" } }, {})
+
+            assert.is_nil(out.raised)
+            assert.equal(401, out.status)
+            assert.equal(500, out.exit_headers["x-upstream-status"])
+        end)
+
+        it("an unreachable auth server gives a 401 with no upstream status", function()
+            local out = run_plugin(base_conf(), { response = nil, err = "connection refused" }, {})
+
+            assert.is_nil(out.raised)
+            assert.equal(401, out.status)
+            assert.is_nil(out.exit_headers)
+        end)
+
+        it("the token can come back in a header instead of the body", function()
+            local token = token_with_payload('{"sub":"u1"}')
+            local out = run_plugin(base_conf(),
+                { response = { status = 200, headers = { ["x-user-token"] = token }, body = "{}" } }, {})
+
+            assert.is_nil(out.raised)
+            assert.is_nil(out.status)
+            assert.equal(token, out.set["x-user-token"])
         end)
     end)
 
