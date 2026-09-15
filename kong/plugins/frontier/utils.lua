@@ -25,6 +25,18 @@ function _M.ltrim(s)
     return s:match'^%s*(.*)'
   end
 
+local function has_a_byte_frontier_would_reject(value)
+    return value:find("[^\32-\126]") ~= nil or value:find('["\\;]') ~= nil
+end
+
+local function unquoted(value)
+    if #value > 1 and value:sub(1, 1) == '"' and value:sub(-1) == '"' then
+        return value:sub(2, -2)
+    end
+
+    return value
+end
+
 function _M.parse_cookies(cookie_header)
     local name_to_every_value_sent = {}
 
@@ -33,9 +45,10 @@ function _M.parse_cookies(cookie_header)
     end
 
     for pair in cookie_header:gmatch("[^;]+") do
-        local name, value = pair:match("^%s*([^=%s]+)%s*=%s*(.-)%s*$")
+        local name, raw_value = pair:match("^%s*([^=%s]+)%s*=(.-)%s*$")
+        local value = raw_value and unquoted(raw_value)
 
-        if name then
+        if value and not has_a_byte_frontier_would_reject(value) then
             local values = name_to_every_value_sent[name]
 
             if values then

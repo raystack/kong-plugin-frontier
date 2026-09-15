@@ -113,8 +113,40 @@ describe("Plugin: " .. PLUGIN_NAME .. " (cache), ", function()
             assert.same({ "x" }, jar.other)
         end)
 
-        it("trims surrounding spaces", function()
-            assert.same({ "abc" }, utils.parse_cookies("  sid = abc  ").sid)
+        it("parses a value exactly the way frontier does", function()
+            -- go's net/http trims the pair and the name but keeps whatever
+            -- follows the `=`, so a value with a leading space is a different
+            -- credential and has to stay a different cache key
+            assert.same({ "abc" }, utils.parse_cookies("  sid =abc  ").sid)
+            assert.same({ " abc" }, utils.parse_cookies("  sid = abc  ").sid)
+            assert.same({ " abc" }, utils.parse_cookies("sid= abc").sid)
+            assert.same({ "  abc" }, utils.parse_cookies("sid=  abc  ").sid)
+            assert.same({ "a b c" }, utils.parse_cookies("sid=a b c").sid)
+            assert.same({ "" }, utils.parse_cookies("sid=").sid)
+            assert.same({ "a=b" }, utils.parse_cookies("sid=a=b").sid)
+        end)
+
+        it("strips surrounding quotes, as go does", function()
+            assert.same({ "quoted" }, utils.parse_cookies('sid="quoted"').sid)
+            assert.same({ "" }, utils.parse_cookies('sid=""').sid)
+            assert.same({ " abc " }, utils.parse_cookies('sid=" abc "').sid)
+        end)
+
+        it("drops a value holding a byte go would reject", function()
+            -- go drops the whole cookie, so keeping it would make our key
+            -- disagree with the session frontier actually sees
+            assert.is_nil(utils.parse_cookies('sid="').sid)
+            assert.is_nil(utils.parse_cookies('sid="a"b"').sid)
+            assert.is_nil(utils.parse_cookies("sid=a\\b").sid)
+            assert.is_nil(utils.parse_cookies("sid=ab\tcd").sid)
+            assert.is_nil(utils.parse_cookies("sid=caf\xc3\xa9").sid)
+        end)
+
+        it("a leading space makes a different cache key", function()
+            local plain = cache.build_key(conf(), "sid=abc", nil)
+            local spaced = cache.build_key(conf(), "sid= abc", nil)
+
+            assert.not_equal(plain, spaced)
         end)
     end)
 
