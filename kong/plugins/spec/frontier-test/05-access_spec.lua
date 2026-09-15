@@ -41,7 +41,7 @@ end
 -- `answer` is either a token the server hands back in a 200, or a table
 -- describing the raw reply so the failure paths can be driven.
 local function run_plugin(conf, answer, request_headers)
-    local result = { set = {}, cleared = {}, status = nil, exit_headers = nil }
+    local result = { set = {}, cleared = {}, status = nil, exit_headers = nil, decodes = 0 }
 
     local reply, reply_err
     if type(answer) == "table" then
@@ -114,6 +114,15 @@ local function run_plugin(conf, answer, request_headers)
     for _, mod in ipairs({ "access", "cache", "utils", "jwt_decoder" }) do
         package.loaded["kong.plugins." .. PLUGIN_NAME .. "." .. mod] = nil
     end
+
+    -- wraps the real decoder so the number of reads of one token is countable
+    local real_decoder = require("kong.plugins." .. PLUGIN_NAME .. ".jwt_decoder")
+    package.loaded["kong.plugins." .. PLUGIN_NAME .. ".jwt_decoder"] = {
+        decode_token = function(token)
+            result.decodes = result.decodes + 1
+            return real_decoder.decode_token(token)
+        end
+    }
 
     local access = require("kong.plugins." .. PLUGIN_NAME .. ".access")
 
@@ -191,6 +200,51 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
 
             assert.is_nil(out.raised)
             assert.equal(401, out.status)
+        end)
+    end)
+
+    describe("reading the token", function()
+        local both_on = function()
+            local c = base_conf()
+            c.verify_request_organization_id_header = true
+            return c
+        end
+
+        it("reads the token once when both header steps run", function()
+            local out = run_plugin(both_on(), token_with_payload('{"sub":"u1","org_ids":"o1"}'),
+                { ["x-organization-id"] = "o1" })
+
+            assert.is_nil(out.raised)
+            assert.equal(1, out.decodes)
+        end)
+
+        it("reads it once for the claim headers alone", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {})
+
+            assert.is_nil(out.raised)
+            assert.equal(1, out.decodes)
+        end)
+
+        it("reads it once for the organization check alone", function()
+            local c = both_on()
+            c.token_claims_to_append_as_headers = {}
+
+            local out = run_plugin(c, token_with_payload('{"org_ids":"o1"}'),
+                { ["x-organization-id"] = "o1" })
+
+            assert.is_nil(out.raised)
+            assert.equal(1, out.decodes)
+        end)
+
+        it("does not read it at all when nothing needs the claims", function()
+            local c = both_on()
+            c.token_claims_to_append_as_headers = {}
+
+            -- the organization check is on but the client sent no header
+            local out = run_plugin(c, token_with_payload('{"sub":"u1"}'), {})
+
+            assert.is_nil(out.raised)
+            assert.equal(0, out.decodes)
         end)
     end)
 

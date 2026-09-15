@@ -196,7 +196,7 @@ local function check_request_permission(conf, cookies, bearer)
 end
 
 
-local function append_claims_as_headers(conf, user_token)
+local function append_claims_as_headers(conf, claims)
     local clear_header = kong.service.request.clear_header
     local set_header = kong.service.request.set_header
 
@@ -214,14 +214,6 @@ local function append_claims_as_headers(conf, user_token)
             clear_header(header)
         end
     end
-
-    local jwt, err = jwt_decoder.decode_token(user_token)
-    if err then
-        kong.log.warn("failed to decode token: ", err)
-        return fail_auth()
-    end
-
-    local claims = jwt.claims
 
     local claims_are_readable = type(claims) == "table"
 
@@ -241,33 +233,21 @@ local function append_claims_as_headers(conf, user_token)
     end
 end
 
-local function verify_organization_id_header(conf, user_token)
-    local request_organization_id = kong.request.get_header(conf.request_organization_id_header)
+local function verify_organization_id_header(conf, claims, request_organization_id)
+    local org_ids = type(claims) == "table" and claims[frontier_org_ids_claim_key] or nil
+    local org_id_header_verified = false
 
-    if request_organization_id then
-        local jwt, err = jwt_decoder.decode_token(user_token)
-        if err then
-            kong.log.warn("failed to decode token: ", err)
-            return fail_auth()
-        end
-
-        local claims = jwt.claims
-        local org_ids = type(claims) == "table" and claims[frontier_org_ids_claim_key] or nil
-
-        local org_id_header_verified = false
-
-        if type(org_ids) == "string" then
-            for word in string.gmatch(org_ids, '([^,]+)') do
-                if word == request_organization_id then
-                    org_id_header_verified = true
-                end
+    if type(org_ids) == "string" then
+        for word in string.gmatch(org_ids, '([^,]+)') do
+            if word == request_organization_id then
+                org_id_header_verified = true
             end
         end
+    end
 
-        if not org_id_header_verified then
-            kong.log.info(conf.request_organization_id_header .. " header removed for request")
-            kong.service.request.clear_header(conf.request_organization_id_header)
-        end
+    if not org_id_header_verified then
+        kong.log.info(conf.request_organization_id_header .. " header removed for request")
+        kong.service.request.clear_header(conf.request_organization_id_header)
     end
 end
 
@@ -294,12 +274,25 @@ function _M.run(conf)
             end
         end
 
-        if #conf.token_claims_to_append_as_headers > 0 then
-            append_claims_as_headers(conf, user_token)
-        end
+        local wants_claim_headers = #conf.token_claims_to_append_as_headers > 0
+        local organization_id_to_verify = conf.verify_request_organization_id_header
+            and kong.request.get_header(conf.request_organization_id_header) or nil
 
-        if conf.verify_request_organization_id_header then
-            verify_organization_id_header(conf, user_token)
+        if wants_claim_headers or organization_id_to_verify then
+            local jwt, err = jwt_decoder.decode_token(user_token)
+
+            if err then
+                kong.log.warn("failed to decode token: ", err)
+                return fail_auth()
+            end
+
+            if wants_claim_headers then
+                append_claims_as_headers(conf, jwt.claims)
+            end
+
+            if organization_id_to_verify then
+                verify_organization_id_header(conf, jwt.claims, organization_id_to_verify)
+            end
         end
     end
 end
