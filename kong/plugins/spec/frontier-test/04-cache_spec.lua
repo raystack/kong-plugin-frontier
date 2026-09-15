@@ -142,6 +142,23 @@ describe("Plugin: " .. PLUGIN_NAME .. " (cache), ", function()
             assert.is_nil(utils.parse_cookies("sid=caf\xc3\xa9").sid)
         end)
 
+        it("the recipe is pinned, so changing it forces a version bump", function()
+            -- every pod shares these keys, so during a rollout two plugin
+            -- versions read each other's entries. If this value changes, bump
+            -- ENTRY_FORMAT_VERSION in cache.lua and update it here
+            local pinned = {
+                authn_url = "http://auth.test/AuthToken",
+                http_method = "POST",
+                header_name = "x-user-token",
+                token_response_field = "access_token",
+                cache_ttl = 5,
+                cache_cookie_names = { "sid" }
+            }
+
+            assert.equal("m0rQX7ob88P9M0tTpourWk93bnvOoio9E1qp-UvHqo4",
+                cache.build_key(pinned, "sid=abc", nil))
+        end)
+
         it("a leading space makes a different cache key", function()
             local plain = cache.build_key(conf(), "sid=abc", nil)
             local spaced = cache.build_key(conf(), "sid= abc", nil)

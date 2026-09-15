@@ -11,6 +11,10 @@ local sort = table.sort
 local tostring = tostring
 local hash = utils.hash
 
+-- bump when the stored value's shape or the recipe below changes, so pods on
+-- two plugin versions never read each other's entries during a rollout
+local ENTRY_FORMAT_VERSION = "1"
+
 local function cookie_names_in_a_stable_order(conf)
     local names = {}
 
@@ -25,6 +29,7 @@ end
 
 local function settings_that_change_what_an_entry_means(conf)
     return {
+        ENTRY_FORMAT_VERSION,
         conf.authn_url or "",
         conf.http_method or "",
         conf.header_name or "",

@@ -152,6 +152,11 @@ it.
   `authn_url`, `http_method`, `header_name`, `token_response_field` and
   `cache_ttl`. The session value is never stored in plain text, and two routes
   that would resolve a credential differently cannot share an entry.
+- The key also carries an entry format version. Every pod shares these keys, so
+  during a rollout pods on two plugin versions read the same entries. Bumping
+  `ENTRY_FORMAT_VERSION` in `cache.lua` whenever the stored value or the key
+  recipe changes keeps the two apart. A spec pins the recipe so a change that
+  forgets the bump fails.
 - Only the named cookies go into the key. Browsers send analytics and consent
   cookies that change constantly, so keying on the whole cookie header would
   miss on nearly every request.
