@@ -52,8 +52,7 @@ local function authenticate_and_select_database(red, conf)
         end
 
         if not accepted then
-            kong.log.warn("redis refused the credentials for ",
-                conf.redis_host, ":", conf.redis_port, ": ", err)
+            skip_instance_for_a_while(conf, "auth", err)
             return false
         end
     end
@@ -62,8 +61,7 @@ local function authenticate_and_select_database(red, conf)
         local selected, err = red:select(conf.redis_database)
 
         if not selected then
-            kong.log.warn("redis rejected database ", conf.redis_database,
-                " on ", conf.redis_host, ":", conf.redis_port, ": ", err)
+            skip_instance_for_a_while(conf, "select", err)
             return false
         end
     end
