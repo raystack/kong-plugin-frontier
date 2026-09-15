@@ -127,12 +127,14 @@ worker stops trying redis for `redis_breaker_seconds`.
 error, a timeout, a bad reply, even a raise, is logged and the plugin carries on
 to the auth server.
 
-When a command to an instance fails, the worker stops trying that instance for
+When anything to an instance fails, the worker stops trying that instance for
 `redis_breaker_seconds`, so an outage cannot make every request pay the timeout
 first. The pause is per instance, so a fault on one redis does not stop the
-worker talking to another. A wrong password or a bad database index is a config
-mistake rather than a broken instance, so those are logged without starting the
-pause.
+worker talking to another. A refused password or database index starts the pause
+too. Without that, a mistyped password would cost a fresh connection, a login
+round trip and a warning line on every single request, and a full TLS handshake
+as well when `redis_ssl` is on. The warning says which it was, so the pause
+hides nothing.
 
 **Treat write access to this redis as equal to being any user.** The plugin
 never checks the token signature, with or without redis. It trusts whatever the
@@ -153,6 +155,11 @@ it.
 - Only the named cookies go into the key. Browsers send analytics and consent
   cookies that change constantly, so keying on the whole cookie header would
   miss on nearly every request.
+- Cookie values are read exactly the way the auth server reads them. Frontier
+  uses Go's `net/http`, which keeps a space that follows the `=`, strips a
+  surrounding pair of double quotes, and drops a cookie whose value holds a
+  byte it does not allow. Getting any of that wrong would let two different
+  sessions share one entry.
 - A request with none of those credentials is never cached, so anonymous
   requests cannot share an entry.
 - A failed exchange is never cached. A user who has just been given access is
