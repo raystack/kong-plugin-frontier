@@ -1,6 +1,7 @@
 local _M = {}
 
 local resty_redis = require "resty.redis"
+local utils = require "kong.plugins.frontier.utils"
 
 local kong = kong
 local ngx = ngx
@@ -15,13 +16,30 @@ local NEVER_USED_BEFORE = 0
 
 local skip_instance_until = {}
 
+local instance_ids_by_conf = setmetatable({}, { __mode = "k" })
+
 local function instance_id(conf)
-    return fmt("frontier:%s:%d:%d:%s:%s",
-        conf.redis_host,
-        conf.redis_port,
-        conf.redis_database,
-        conf.redis_username or "",
-        conf.redis_ssl and "s" or "p")
+    local id = instance_ids_by_conf[conf]
+
+    if not id then
+        local secret = ""
+
+        if conf.redis_password and conf.redis_password ~= "" then
+            secret = utils.hash(conf.redis_password)
+        end
+
+        id = fmt("frontier:%s:%d:%d:%s:%s:%s",
+            conf.redis_host,
+            conf.redis_port,
+            conf.redis_database,
+            conf.redis_username or "",
+            secret,
+            conf.redis_ssl and "s" or "p")
+
+        instance_ids_by_conf[conf] = id
+    end
+
+    return id
 end
 
 local function instance_is_being_skipped(conf)

@@ -110,9 +110,11 @@ plugins:
 | `redis_breaker_seconds` | `10` | How long a worker stops trying after a failure |
 
 Connections are reused through OpenResty's own connection pool, keyed by host,
-port, database, user and whether SSL is on. Two plugin configs that mean the
-same thing share a pool; two that differ do not. The pool is not configurable,
-the same way it is not in the bundled rate limiting plugin.
+port, database, user, hashed password and whether SSL is on. Two plugin configs
+that mean the same thing share a pool; two that differ do not. The same key
+separates the pause, so a config with the wrong password cannot pause one with
+the right password. The pool is not configurable, the same way it is not in the
+bundled rate limiting plugin.
 
 The timeout default is 100ms, much lower than the bundled rate limiting
 plugin's 2000ms. A healthy redis answers in well under a millisecond, so 100ms

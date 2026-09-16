@@ -371,6 +371,22 @@ describe("Plugin: " .. PLUGIN_NAME .. " (redis), ", function()
             assert.equal("v", redis.get(other_db, "k"))
         end)
 
+        it("treats a different password as a different instance", function()
+            -- the pool name carries the hashed password, so a config with the
+            -- wrong one cannot pause the config with the right one
+            reset_server()
+            local right = fresh_conf({ redis_password = "right" })
+            local wrong = conf({ redis_host = right.redis_host, redis_password = "wrong" })
+            server.fail.auth = true
+
+            assert.is_nil(redis.get(wrong, "k"))
+
+            server.fail.auth = false
+            server.store["frontier:authn:k"] = "v"
+
+            assert.equal("v", redis.get(right, "k"))
+        end)
+
         it("closes the connection when the pool check fails", function()
             reset_server()
             local c = fresh_conf()
