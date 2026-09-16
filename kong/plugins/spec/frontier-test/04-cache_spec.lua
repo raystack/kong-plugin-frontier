@@ -132,6 +132,15 @@ describe("Plugin: " .. PLUGIN_NAME .. " (cache), ", function()
             assert.same({ " abc " }, utils.parse_cookies('sid=" abc "').sid)
         end)
 
+        it("trims only the whitespace go trims", function()
+            -- go's isASCIISpace is space, tab, CR and LF. lua's %s also covers
+            -- \v and \f, which go keeps and then drops as control bytes
+            assert.is_nil(utils.parse_cookies("sid=abc\v").sid)
+            assert.is_nil(utils.parse_cookies("sid=abc\f").sid)
+            assert.is_nil(utils.parse_cookies("\vsid=abc").sid)
+            assert.same({ "abc" }, utils.parse_cookies("\tsid=abc\r").sid)
+        end)
+
         it("drops a value holding a byte go would reject", function()
             -- go drops the whole cookie, so keeping it would make our key
             -- disagree with the session frontier actually sees

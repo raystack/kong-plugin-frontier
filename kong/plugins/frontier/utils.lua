@@ -45,7 +45,7 @@ function _M.parse_cookies(cookie_header)
     end
 
     for pair in cookie_header:gmatch("[^;]+") do
-        local name, raw_value = pair:match("^%s*([^=%s]+)%s*=(.-)%s*$")
+        local name, raw_value = pair:match("^[ \t\r\n]*([^=%s]+)[ \t\r\n]*=(.-)[ \t\r\n]*$")
         local value = raw_value and unquoted(raw_value)
 
         if value and not has_a_byte_frontier_would_reject(value) then
