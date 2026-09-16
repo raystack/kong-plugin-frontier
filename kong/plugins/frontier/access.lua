@@ -3,6 +3,7 @@ local _M = {}
 local http = require "resty.http"
 local json = require('cjson')
 local jwt_decoder = require "kong.plugins.frontier.jwt_decoder"
+local cache = require "kong.plugins.frontier.cache"
 local kong = kong
 local ngx = ngx
 local utils = require "kong.plugins.frontier.utils"
@@ -26,12 +27,13 @@ end
 
 local function get_http_client(conf)
     local client = http.new()
-    client:set_timeouts(conf.http_connect_timeout, conf.http_read_timeout, conf.http_send_timeout)
+    local connect_timeout, send_timeout, read_timeout =
+        conf.http_connect_timeout, conf.http_send_timeout, conf.http_read_timeout
+    client:set_timeouts(connect_timeout, send_timeout, read_timeout)
     return client
 end
 
--- send a request to auth server and fetch user token in exchange of cookies
-local function check_request_identity(conf, cookies, bearer)
+local function fetch_identity_token(conf, cookies, bearer)
     local client = get_http_client(conf)
     local correlation_id = kong.request.get_header(conf.correlation_header_name)
 
@@ -59,13 +61,11 @@ local function check_request_identity(conf, cookies, bearer)
     local res, err = client:request_uri(conf.authn_url, request_options)
     if not res or err then
         kong.log.warn("failed to check request identity: ", err)
-        return fail_auth()
+        return nil, err or "no response from auth server"
     end
     if not err and res and res.status ~= 200 then
         kong.log.warn("received non 200 response status: ", res.status)
-        return kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response, {
-            ["x-upstream-status"] = res.status
-        })
+        return nil, "non 200 response status", res.status
     end
 
     kong.log.debug("check_request_identity: Received successful response with status: ", res.status)
@@ -77,18 +77,55 @@ local function check_request_identity(conf, cookies, bearer)
 
     -- fallback to response body if header token is not found
     if not token and res.body then
-        kong.log.debug("check_request_identity: Attempting to extract token from response body")
-        local bodyJson, err = json.decode(res.body)
-        if not err and bodyJson and bodyJson[conf.token_response_field] then
-            token = bodyJson[conf.token_response_field]
-            kong.log.debug("check_request_identity: Token found in response body field '", conf.token_response_field, "'")
+        local decoded_ok, body = pcall(json.decode, res.body)
+        local field = decoded_ok and type(body) == "table" and body[conf.token_response_field]
+
+        if type(field) == "string" then
+            token = field
         else
-            kong.log.debug("check_request_identity: Failed to extract token from response body - err: ", err,
-                ", field present: ", bodyJson and bodyJson[conf.token_response_field] and "yes" or "no")
+            kong.log.debug("no ", conf.token_response_field, " in the auth server's body")
         end
     end
 
     kong.log.debug("check_request_identity: Returning token: ", token and "found" or "not found")
+
+    if not token then
+        return nil, "no token in auth server response"
+    end
+
+    return token, nil, nil
+end
+
+local function check_request_identity(conf, cookies, bearer)
+    local auth_server_status
+
+    local function fetch()
+        local token, err, status = fetch_identity_token(conf, cookies, bearer)
+        auth_server_status = status
+
+        return token, err
+    end
+
+    local token, err
+
+    if cache.enabled(conf) then
+        token, err = cache.get(conf, cache.build_key(conf, cookies, bearer), fetch)
+    else
+        token, err = fetch()
+    end
+
+    if not token then
+        kong.log.warn("failed to resolve user token: ", err)
+
+        if auth_server_status then
+            return kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response, {
+                ["x-upstream-status"] = auth_server_status
+            })
+        end
+
+        return fail_auth()
+    end
+
     return token
 end
 
@@ -146,14 +183,14 @@ local function check_request_permission(conf, cookies, bearer)
         })
     end
 
-    local bodyJson, err = json.decode(res.body)
-    if err or not bodyJson then
-        kong.log.warn("failed to parse response body: ", err)
+    local decoded_ok, body = pcall(json.decode, res.body)
+    if not decoded_ok or type(body) ~= "table" then
+        kong.log.warn("could not read the authz response body")
         return fail_auth()
     end
 
-    if bodyJson["status"] ~= true then
-        kong.log.warn("status value not true: ", bodyJson["status"])
+    if body["status"] ~= true then
+        kong.log.warn("status value not true: ", tostring(body["status"]))
         return fail_auth()
     end
 end
@@ -186,6 +223,13 @@ local function append_claims_as_headers(conf, user_token)
 
     local claims = jwt.claims
 
+    local claims_are_readable = type(claims) == "table"
+
+    if not claims_are_readable then
+        kong.log.warn("token payload is not an object, cannot read claims")
+        return fail_auth()
+    end
+
     for _, header_name in pairs(conf.token_claims_to_append_as_headers) do
         local new_header = conf.frontier_header_prefix .. header_name
         local val = claims[header_name]
@@ -208,12 +252,15 @@ local function verify_organization_id_header(conf, user_token)
         end
 
         local claims = jwt.claims
-        local org_ids = claims[frontier_org_ids_claim_key]
+        local org_ids = type(claims) == "table" and claims[frontier_org_ids_claim_key] or nil
 
         local org_id_header_verified = false
-        for word in string.gmatch(org_ids, '([^,]+)') do
-            if word == request_organization_id then
-                org_id_header_verified = true
+
+        if type(org_ids) == "string" then
+            for word in string.gmatch(org_ids, '([^,]+)') do
+                if word == request_organization_id then
+                    org_id_header_verified = true
+                end
             end
         end
 
