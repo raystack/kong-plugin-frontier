@@ -40,8 +40,8 @@ end
 -- runs the plugin against an auth server and reports what reached the upstream.
 -- `answer` is either a token the server hands back in a 200, or a table
 -- describing the raw reply so the failure paths can be driven.
-local function run_plugin(conf, answer, request_headers)
-    local result = { set = {}, cleared = {}, status = nil, exit_headers = nil, decodes = 0 }
+local function run_plugin(conf, answer, request_headers, read_headers_err)
+    local result = { set = {}, cleared = {}, order = {}, status = nil, exit_headers = nil, decodes = 0 }
 
     local reply, reply_err
     if type(answer) == "table" then
@@ -79,7 +79,7 @@ local function run_plugin(conf, answer, request_headers)
                 return request_headers[string.lower(name)]
             end,
             get_headers = function()
-                return request_headers
+                return request_headers, read_headers_err
             end,
             get_method = function()
                 return "GET"
@@ -95,9 +95,11 @@ local function run_plugin(conf, answer, request_headers)
                         error("invalid header value for " .. name .. ": got " .. t)
                     end
                     result.set[name] = value
+                    result.order[#result.order + 1] = "set " .. name
                 end,
                 clear_header = function(name)
                     result.cleared[#result.cleared + 1] = name
+                    result.order[#result.order + 1] = "clear " .. name
                 end
             }
         },
@@ -200,6 +202,97 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
 
             assert.is_nil(out.raised)
             assert.equal(401, out.status)
+        end)
+    end)
+
+    describe("headers the client sent under the prefix", function()
+        it("removes every one, including one no claim would replace", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-sub"] = "someone-else",
+                ["x-frontier-user_id"] = "someone-else",
+                ["x-frontier-anything"] = "someone-else",
+                ["accept"] = "application/json"
+            })
+
+            assert.is_nil(out.raised)
+            assert.is_nil(out.status)
+            table.sort(out.cleared)
+            assert.same({ "x-frontier-anything", "x-frontier-sub", "x-frontier-user_id" }, out.cleared)
+            assert.equal("u1", out.set["X-Frontier-sub"])
+            assert.is_nil(out.set["X-Frontier-user_id"])
+        end)
+
+        it("looks at the header name, not its value", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["access-control-request-headers"] = "x-frontier-user_id"
+            })
+
+            assert.is_nil(out.raised)
+            assert.same({}, out.cleared)
+        end)
+
+        it("removes a header only when its name starts with the prefix", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-sub"] = "someone-else",
+                ["my-x-frontier-copy"] = "someone-else",
+                ["x-frontier"] = "someone-else"
+            })
+
+            assert.is_nil(out.raised)
+            assert.same({ "x-frontier-sub" }, out.cleared)
+        end)
+
+        it("does not read the prefix as a lua pattern", function()
+            -- as a pattern, "x-frontier-" matches frontier-sub and misses x-frontier-user_id
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-user_id"] = "someone-else",
+                ["frontier-sub"] = "someone-else"
+            })
+
+            assert.is_nil(out.raised)
+            assert.same({ "x-frontier-user_id" }, out.cleared)
+        end)
+
+        it("handles a header the client sent more than once", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["accept"] = { "text/html", "application/json" },
+                ["x-frontier-user_id"] = { "someone-else", "someone-else-again" }
+            })
+
+            assert.is_nil(out.raised)
+            assert.is_nil(out.status)
+            assert.same({ "x-frontier-user_id" }, out.cleared)
+        end)
+
+        it("removes them even when no claims are configured", function()
+            local conf = base_conf()
+            conf.token_claims_to_append_as_headers = {}
+
+            local out = run_plugin(conf, token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-sub"] = "someone-else"
+            })
+
+            assert.is_nil(out.raised)
+            assert.same({ "x-frontier-sub" }, out.cleared)
+        end)
+
+        it("removes them before the plugin sets any header", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-sub"] = "someone-else"
+            })
+
+            assert.is_nil(out.raised)
+            assert.same({ "clear x-frontier-sub", "set x-user-token", "set X-Frontier-sub" }, out.order)
+        end)
+
+        it("refuses a request with more headers than it can read", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-user_id"] = "someone-else"
+            }, "truncated")
+
+            assert.is_nil(out.raised)
+            assert.equal(400, out.status)
+            assert.same({}, out.order)
         end)
     end)
 

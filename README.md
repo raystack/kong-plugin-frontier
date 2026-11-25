@@ -64,6 +64,19 @@ disabled = {
     default = false
 }
 ```
+### Headers the plugin sets
+
+Each claim in `token_claims_to_append_as_headers` reaches the upstream as a
+header named `frontier_header_prefix` plus the claim, for example
+`X-Frontier-sub`. Only the plugin sets these, so the upstream can trust them.
+
+Before it sets its own, the plugin removes every header under that prefix that
+the client sent. A claim that is not on the token gets no header at all, even
+when the client sent one with that name.
+
+A request with more than 1000 headers is refused with a 400. That is as many as
+the plugin can read, so it cannot be sure none of the rest carry the prefix.
+
 ### Token caching
 
 Works on Kong 3.4 and later. It only uses modules that ship with Kong and

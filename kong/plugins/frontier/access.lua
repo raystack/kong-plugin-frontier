@@ -10,6 +10,9 @@ local utils = require "kong.plugins.frontier.utils"
 local unauthorized_response = {
     message = "unauthorized"
 }
+local too_many_headers_response = {
+    message = "too many request headers"
+}
 local method_to_permission_map = {
     ["GET"] = "view",
     ["HEAD"] = "view",
@@ -20,6 +23,9 @@ local method_to_permission_map = {
 }
 
 local frontier_org_ids_claim_key = "org_ids"
+
+-- the most headers kong.request.get_headers will read for one request
+local max_request_headers = 1000
 
 local function fail_auth()
     kong.response.exit(ngx.HTTP_UNAUTHORIZED, unauthorized_response)
@@ -196,24 +202,26 @@ local function check_request_permission(conf, cookies, bearer)
 end
 
 
-local function append_claims_as_headers(conf, claims)
-    local clear_header = kong.service.request.clear_header
-    local set_header = kong.service.request.set_header
+local function clear_client_frontier_headers(conf)
+    local headers, err = kong.request.get_headers(max_request_headers)
 
-    local req_headers = kong.request.get_headers()
+    -- headers past the limit go unread but still reach the upstream
+    if err == "truncated" then
+        kong.log.warn("request has more than ", max_request_headers, " headers")
+        return kong.response.exit(ngx.HTTP_BAD_REQUEST, too_many_headers_response)
+    end
 
-    -- Clear headers of the format matching conf.frontier_header_prefix. These should be set only by the plugin.
-    for _, header in pairs(req_headers) do
-        local trimmed_header = utils.ltrim(header)
+    local prefix = string.lower(conf.frontier_header_prefix)
 
-        -- Format: string.find(fullstring, searchstring, init, is_this_a_pattern)
-        -- The last parameter here is important, since without this, we can run into "escape" issues. Eg. without this, "-" needs to be matched with "%-".
-        local st, en = string.find(string.lower(trimmed_header), string.lower(conf.frontier_header_prefix), 1, true)
-
-        if st == 1 then
-            clear_header(header)
+    for name in pairs(headers) do
+        if name:sub(1, #prefix) == prefix then
+            kong.service.request.clear_header(name)
         end
     end
+end
+
+local function append_claims_as_headers(conf, claims)
+    local set_header = kong.service.request.set_header
 
     local claims_are_readable = type(claims) == "table"
 
@@ -256,6 +264,8 @@ function _M.run(conf)
     if conf.disabled then
         kong.log.debug("Skipping Frontier plugin execution as it is disabled")
     else
+        clear_client_frontier_headers(conf)
+
         local cookies = kong.request.get_header("cookie")
         local bearer = kong.request.get_header("authorization")
 
