@@ -20,11 +20,6 @@ function _M.split(s, delimiter)
     return result
 end
 
--- Trim spaces from the starting of a string
-function _M.ltrim(s)
-    return s:match'^%s*(.*)'
-  end
-
 local function has_a_byte_frontier_would_reject(value)
     return value:find("[^\32-\126]") ~= nil or value:find('["\\;]') ~= nil
 end
