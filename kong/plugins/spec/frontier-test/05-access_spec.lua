@@ -40,8 +40,6 @@ end
 -- runs the plugin against an auth server and reports what reached the upstream.
 -- `answer` is either a token the server hands back in a 200, or a table
 -- describing the raw reply so the failure paths can be driven.
--- `read_headers_err` is the second value kong.request.get_headers hands back,
--- which is "truncated" when the request had more headers than it read.
 local function run_plugin(conf, answer, request_headers, read_headers_err)
     local result = { set = {}, cleared = {}, order = {}, status = nil, exit_headers = nil, decodes = 0 }
 
@@ -209,8 +207,6 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
 
     describe("headers the client sent under the prefix", function()
         it("removes every one, including one no claim would replace", function()
-            -- the token has no user_id, so nothing overwrites the one the
-            -- client sent. It used to reach the upstream as if the plugin set it
             local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
                 ["x-frontier-sub"] = "someone-else",
                 ["x-frontier-user_id"] = "someone-else",
@@ -227,9 +223,6 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
         end)
 
         it("looks at the header name, not its value", function()
-            -- the loop used to read each value as if it were a name, so it
-            -- missed every header named under the prefix, and went after one
-            -- that only mentioned the prefix in its value
             local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
                 ["access-control-request-headers"] = "x-frontier-user_id"
             })
@@ -239,8 +232,6 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
         end)
 
         it("handles a header the client sent more than once", function()
-            -- a repeated header comes back as a list of values. Trimming that
-            -- list as a string used to fail the request with a 500
             local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
                 ["accept"] = { "text/html", "application/json" },
                 ["x-frontier-user_id"] = { "someone-else", "someone-else-again" }
@@ -273,8 +264,6 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
         end)
 
         it("refuses a request with more headers than it can read", function()
-            -- headers past the limit are never looked at, so one of them could
-            -- carry the prefix
             local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
                 ["x-frontier-user_id"] = "someone-else"
             }, "truncated")
