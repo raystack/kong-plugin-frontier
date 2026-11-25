@@ -231,6 +231,28 @@ describe("Plugin: " .. PLUGIN_NAME .. " (access), ", function()
             assert.same({}, out.cleared)
         end)
 
+        it("removes a header only when its name starts with the prefix", function()
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-sub"] = "someone-else",
+                ["my-x-frontier-copy"] = "someone-else",
+                ["x-frontier"] = "someone-else"
+            })
+
+            assert.is_nil(out.raised)
+            assert.same({ "x-frontier-sub" }, out.cleared)
+        end)
+
+        it("does not read the prefix as a lua pattern", function()
+            -- as a pattern, "x-frontier-" matches frontier-sub and misses x-frontier-user_id
+            local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
+                ["x-frontier-user_id"] = "someone-else",
+                ["frontier-sub"] = "someone-else"
+            })
+
+            assert.is_nil(out.raised)
+            assert.same({ "x-frontier-user_id" }, out.cleared)
+        end)
+
         it("handles a header the client sent more than once", function()
             local out = run_plugin(base_conf(), token_with_payload('{"sub":"u1"}'), {
                 ["accept"] = { "text/html", "application/json" },

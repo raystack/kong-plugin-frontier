@@ -214,7 +214,7 @@ local function clear_client_frontier_headers(conf)
     local prefix = string.lower(conf.frontier_header_prefix)
 
     for name in pairs(headers) do
-        if string.find(string.lower(name), prefix, 1, true) == 1 then
+        if name:sub(1, #prefix) == prefix then
             kong.service.request.clear_header(name)
         end
     end
